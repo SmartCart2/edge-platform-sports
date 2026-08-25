@@ -93,3 +93,4 @@ Update `src/data/mlb.js` at start of each season.
 - [ ] Email alerts when strong signal fires
 - [ ] Stripe subscription ($19/mo Pro tier)
 - [ ] Mobile app (React Native)
+ 
