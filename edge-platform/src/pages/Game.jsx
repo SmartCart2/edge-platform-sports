@@ -263,9 +263,17 @@ function SignalLogger({ game, ak, hk, mkt, line, sigs, user }) {
   // Dedupe pick options
   const seen = new Set();
   const uniquePicks = pickOptions.filter(p => { if (seen.has(p.value)) return false; seen.add(p.value); return true; });
-  if (uniquePicks.length === 0 && line) {
-    uniquePicks.push({ label: 'Under ' + line, value: 'Under ' + line, sig: '' });
-    uniquePicks.push({ label: 'Over ' + line, value: 'Over ' + line, sig: '' });
+
+  // Always ensure both options exist for each market
+  if (mkt === 'totals') {
+    if (line && !uniquePicks.find(p => p.value === 'Under ' + line)) uniquePicks.push({ label: 'Under ' + line, value: 'Under ' + line, sig: '' });
+    if (line && !uniquePicks.find(p => p.value === 'Over ' + line)) uniquePicks.push({ label: 'Over ' + line, value: 'Over ' + line, sig: '' });
+  } else if (mkt === 'h2h') {
+    if (!uniquePicks.find(p => p.value === game.away_team)) uniquePicks.push({ label: game.away_team, value: game.away_team, sig: '' });
+    if (!uniquePicks.find(p => p.value === game.home_team)) uniquePicks.push({ label: game.home_team, value: game.home_team, sig: '' });
+  } else if (mkt === 'spreads') {
+    if (!uniquePicks.find(p => p.value.includes(game.away_team.split(' ').pop()))) uniquePicks.push({ label: game.away_team.split(' ').pop() + ' -1.5', value: game.away_team.split(' ').pop() + ' -1.5', sig: '' });
+    if (!uniquePicks.find(p => p.value.includes(game.home_team.split(' ').pop()))) uniquePicks.push({ label: game.home_team.split(' ').pop() + ' -1.5', value: game.home_team.split(' ').pop() + ' -1.5', sig: '' });
   }
 
   const [pick, setPick] = useState(uniquePicks[0]?.value || '');
