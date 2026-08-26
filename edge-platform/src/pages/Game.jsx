@@ -144,11 +144,15 @@ export default function Game({ user }) {
             </div>
             <div style={{ background: 'var(--grn)0d', borderRadius: 8, padding: 10, textAlign: 'center', border: '1px solid var(--grn)22' }}>
               <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--grn)', fontFamily: 'var(--mono)' }}>{bestOver ? fmtOdds(bestOver) : '--'}</div>
-              <div style={{ fontSize: 9, color: 'var(--mut)', textTransform: 'uppercase', marginTop: 3 }}>Best Over · {bestOverBook || ''}</div>
+              <div style={{ fontSize: 9, color: 'var(--mut)', textTransform: 'uppercase', marginTop: 3 }}>
+                {mkt === 'totals' ? 'Best Over' : mkt === 'h2h' ? game.away_team.split(' ').pop() : 'Away -1.5'} · {bestOverBook || ''}
+              </div>
             </div>
             <div style={{ background: 'var(--red)0d', borderRadius: 8, padding: 10, textAlign: 'center', border: '1px solid var(--red)22' }}>
               <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--red)', fontFamily: 'var(--mono)' }}>{bestUnder ? fmtOdds(bestUnder) : '--'}</div>
-              <div style={{ fontSize: 9, color: 'var(--mut)', textTransform: 'uppercase', marginTop: 3 }}>Best Under · {bestUnderBook || ''}</div>
+              <div style={{ fontSize: 9, color: 'var(--mut)', textTransform: 'uppercase', marginTop: 3 }}>
+                {mkt === 'totals' ? 'Best Under' : mkt === 'h2h' ? game.home_team.split(' ').pop() : 'Home -1.5'} · {bestUnderBook || ''}
+              </div>
             </div>
           </div>
         </div>
@@ -230,12 +234,30 @@ function SignalLogger({ game, ak, hk, mkt, line, sigs, user }) {
   // Build pick suggestions from signals
   const pickOptions = goodSigs.map(s => {
     if (mkt === 'totals') {
-      return { label: 'Under ' + line, value: 'Under ' + line, sig: s.label };
+      const dir = s.label.toLowerCase().includes('over') ? 'Over' : 'Under';
+      return { label: dir + ' ' + line, value: dir + ' ' + line, sig: s.label };
     }
     if (mkt === 'h2h') {
-      return { label: s.good ? game.away_team : game.home_team, value: s.good ? game.away_team : game.home_team, sig: s.label };
+      // Parse which team to bet from the signal label
+      const label = s.label || '';
+      let team = '';
+      if (label.startsWith('BET ')) {
+        team = label.replace('BET ', '').split(' —')[0].trim();
+      } else if (label.startsWith('FADE ')) {
+        // FADE away team means bet home team
+        const fadeTeam = label.replace('FADE ', '').split(' —')[0].trim();
+        team = fadeTeam === ak ? hk : ak;
+        // Check if label says BET explicitly
+        const betMatch = label.match(/BET (.+)$/);
+        if (betMatch) team = betMatch[1].trim();
+      } else {
+        team = s.label.split(' ')[0];
+      }
+      return { label: team, value: team, sig: s.label };
     }
-    return { label: s.label.split(' ')[0] + ' -1.5', value: s.label.split(' ')[0] + ' -1.5', sig: s.label };
+    // Run line
+    const teamName = s.label.split(' ')[0];
+    return { label: teamName + ' -1.5', value: teamName + ' -1.5', sig: s.label };
   });
 
   // Dedupe pick options

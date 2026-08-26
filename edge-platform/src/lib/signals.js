@@ -98,6 +98,14 @@ export function autoDetectCtx(game, scoresMap = {}, resolver = resolveMLB) {
   };
 }
 
+function parseRecord(rec) {
+  if (!rec) return 50;
+  const p = rec.split('-');
+  if (p.length < 2) return 50;
+  const w = parseInt(p[0]); const l = parseInt(p[1]);
+  return (w + l) > 0 ? Math.round(w / (w + l) * 100) : 50;
+}
+
 // ── MLB SIGNAL ENGINE ──────────────────────────────────────────────────────
 export function buildMLBSignals(ak, hk, mkt, line, ctx = {}) {
   const sigs = [];
@@ -155,12 +163,22 @@ export function buildMLBSignals(ak, hk, mkt, line, ctx = {}) {
 
   if (mkt === 'h2h') {
     if (ra) {
-      if (ra.ml_units > 500) sig('ML Value', `${ak} +${ra.ml_units} ML units as dog/value team`, true, ra.ml_units / 50);
-      if (ra.ml_units < -1000) sig('ML Value', `${ak} burns ${Math.abs(ra.ml_units)} ML units — fade as fav`, false, Math.abs(ra.ml_units) / 50);
+      if (ra.ml_units > 500) sig('ML Value', 'BET ' + ak + ' — +' + ra.ml_units + ' ML units as away value team', true, ra.ml_units / 50);
+      if (ra.ml_units < -1000) sig('ML Value', 'FADE ' + ak + ' — burns ' + Math.abs(ra.ml_units) + ' ML units as favorite. BET ' + hk, true, Math.abs(ra.ml_units) / 50);
     }
     if (rh) {
-      if (rh.ml_units > 500) sig('ML Value', `${hk} +${rh.ml_units} ML units at home`, true, rh.ml_units / 50);
-      if (rh.ml_units < -1000) sig('ML Value', `${hk} burns ${Math.abs(rh.ml_units)} ML units at home — fade`, false, Math.abs(rh.ml_units) / 50);
+      if (rh.ml_units > 500) sig('ML Value', 'BET ' + hk + ' — +' + rh.ml_units + ' ML units as home value team', true, rh.ml_units / 50);
+      if (rh.ml_units < -1000) sig('ML Value', 'FADE ' + hk + ' — burns ' + Math.abs(rh.ml_units) + ' ML units at home. BET ' + ak, true, Math.abs(rh.ml_units) / 50);
+    }
+    if (rh) {
+      const hPct = parseRecord(rh.home_record);
+      if (hPct >= 60) sig('Home Record', hk + ' wins ' + hPct + '% at home (' + rh.home_record + ') — home edge', true, hPct - 50);
+      if (hPct <= 40) sig('Home Record', hk + ' only wins ' + hPct + '% at home (' + rh.home_record + ') — fade home, bet ' + ak, true, 50 - hPct);
+    }
+    if (ra) {
+      const aPct = parseRecord(ra.away_record);
+      if (aPct >= 55) sig('Road Record', ak + ' wins ' + aPct + '% on road (' + ra.away_record + ') — road edge', true, aPct - 50);
+      if (aPct <= 38) sig('Road Record', ak + ' only wins ' + aPct + '% on road (' + ra.away_record + ') — fade away, bet ' + hk, true, 50 - aPct);
     }
   }
 
