@@ -216,36 +216,91 @@ export default function Game({ user }) {
 }
 
 function SignalLogger({ game, ak, hk, mkt, line, sigs, user }) {
-  const [pick, setPick] = useState('');
-  const [odds, setOdds] = useState('-110');
-  const [book, setBook] = useState('');
   const [confidence, setConfidence] = useState('Medium');
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [selectedSig, setSelectedSig] = useState(0);
+  const [selectedBook, setSelectedBook] = useState('');
+  const [selectedOdds, setSelectedOdds] = useState('');
 
-  const topSig = sigs.find(s => s.good);
+  // Build pick options from signals + line
+  const goodSigs = sigs.filter(s => s.good);
+  const mktLabel = mkt === 'totals' ? 'Totals O/U' : mkt === 'h2h' ? 'Moneyline' : 'Run Line';
+
+  // Build pick suggestions from signals
+  const pickOptions = goodSigs.map(s => {
+    if (mkt === 'totals') {
+      return { label: 'Under ' + line, value: 'Under ' + line, sig: s.label };
+    }
+    if (mkt === 'h2h') {
+      return { label: s.good ? game.away_team : game.home_team, value: s.good ? game.away_team : game.home_team, sig: s.label };
+    }
+    return { label: s.label.split(' ')[0] + ' -1.5', value: s.label.split(' ')[0] + ' -1.5', sig: s.label };
+  });
+
+  // Dedupe pick options
+  const seen = new Set();
+  const uniquePicks = pickOptions.filter(p => { if (seen.has(p.value)) return false; seen.add(p.value); return true; });
+  if (uniquePicks.length === 0 && line) {
+    uniquePicks.push({ label: 'Under ' + line, value: 'Under ' + line, sig: '' });
+    uniquePicks.push({ label: 'Over ' + line, value: 'Over ' + line, sig: '' });
+  }
+
+  const [pick, setPick] = useState(uniquePicks[0]?.value || '');
+
+  // Build book/odds options from game bookmakers
+  const bookOptions = [];
+  (game.bookmakers || []).forEach(bk => {
+    (bk.markets || []).forEach(m => {
+      if (m.key !== mkt) return;
+      (m.outcomes || []).forEach(o => {
+        const isUnder = o.name === 'Under' || o.name === 'Away';
+        const isOver = o.name === 'Over' || o.name === 'Home';
+        const matchesPick = pick && (
+          (pick.startsWith('Under') && isUnder) ||
+          (pick.startsWith('Over') && isOver) ||
+          pick === o.name
+        );
+        if (matchesPick) {
+          const american = o.price >= 2
+            ? '+' + Math.round((o.price - 1) * 100)
+            : '' + Math.round(-100 / (o.price - 1));
+          bookOptions.push({ book: bk.title, odds: american, price: o.price, line: o.point });
+        }
+      });
+    });
+  });
+  bookOptions.sort((a, b) => b.price - a.price);
+
+  const topSig = goodSigs[0];
+
+  const sel = {
+    width: '100%', background: 'var(--sur)', border: '1px solid var(--bdr2)',
+    borderRadius: 7, padding: '7px 10px', color: 'var(--txt)', fontSize: 12, outline: 'none',
+  };
 
   async function logSignal() {
-    if (!pick.trim()) return;
+    if (!pick) return;
     setSaving(true);
+    const bookEntry = bookOptions.find(b => b.book === selectedBook) || bookOptions[0];
     const { supabase } = await import('../lib/supabase.js');
     const { error } = await supabase.from('signals').insert({
       user_id: user.id,
       sport: game.sport_key || 'baseball_mlb',
-      game: `${game.away_team} @ ${game.home_team}`,
+      game: game.away_team + ' @ ' + game.home_team,
       game_date: game.commence_time.split('T')[0],
-      market: mkt === 'totals' ? 'Totals O/U' : mkt === 'h2h' ? 'Moneyline' : 'Run Line',
-      pick: pick.trim(),
-      line: line,
-      odds: parseInt(odds) || -110,
-      book: book.trim() || null,
-      signal_source: topSig?.label || null,
+      market: mktLabel,
+      pick: pick,
+      line: bookEntry ? bookEntry.line : line,
+      odds: bookEntry ? parseInt(bookEntry.odds) : -110,
+      book: bookEntry ? bookEntry.book : selectedBook || null,
+      signal_source: topSig ? topSig.label : null,
       confidence,
       result: 'Pending',
       is_public: true,
     });
     setSaving(false);
-    if (!error) { setSaved(true); setPick(''); setTimeout(() => setSaved(false), 3000); }
+    if (!error) { setSaved(true); setTimeout(() => setSaved(false), 3000); }
   }
 
   return (
@@ -255,37 +310,58 @@ function SignalLogger({ game, ak, hk, mkt, line, sigs, user }) {
       </div>
 
       {topSig && (
-        <div style={{ background: 'var(--grn)0d', border: '1px solid var(--grn)33', borderRadius: 8, padding: '8px 10px', marginBottom: 12, fontSize: 10, color: 'var(--grn)' }}>
-          Top signal: {topSig.label}
+        <div style={{ background: 'var(--grn)0d', border: '1px solid var(--grn)33', borderRadius: 8, padding: '8px 10px', marginBottom: 12, fontSize: 10, color: 'var(--grn)', lineHeight: 1.5 }}>
+          {topSig.label}
         </div>
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div>
           <label style={{ fontSize: 9, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Pick</label>
-          <input value={pick} onChange={e => setPick(e.target.value)} placeholder="e.g. Under 8.5"
-            style={{ width: '100%', background: 'var(--sur)', border: '1px solid var(--bdr2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt)', fontSize: 12, outline: 'none' }} />
+          <select value={pick} onChange={e => setPick(e.target.value)} style={sel}>
+            {uniquePicks.map((p, i) => <option key={i} value={p.value}>{p.value}</option>)}
+            <option value="custom">Custom...</option>
+          </select>
+          {pick === 'custom' && (
+            <input onChange={e => setPick(e.target.value)} placeholder="Type your pick..."
+              style={{ ...sel, marginTop: 6 }} />
+          )}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <div>
-            <label style={{ fontSize: 9, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Odds</label>
-            <input value={odds} onChange={e => setOdds(e.target.value)} placeholder="-110"
-              style={{ width: '100%', background: 'var(--sur)', border: '1px solid var(--bdr2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt)', fontSize: 12, outline: 'none', fontFamily: 'var(--mono)' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 9, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Book</label>
-            <input value={book} onChange={e => setBook(e.target.value)} placeholder="DraftKings"
-              style={{ width: '100%', background: 'var(--sur)', border: '1px solid var(--bdr2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt)', fontSize: 12, outline: 'none' }} />
-          </div>
+
+        <div>
+          <label style={{ fontSize: 9, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>
+            Book + Odds {bookOptions.length > 0 && <span style={{ color: 'var(--grn)' }}>— best line first</span>}
+          </label>
+          {bookOptions.length > 0 ? (
+            <select
+              onChange={e => {
+                const entry = bookOptions[parseInt(e.target.value)];
+                if (entry) { setSelectedBook(entry.book); setSelectedOdds(entry.odds); }
+              }}
+              style={sel}
+            >
+              {bookOptions.map((b, i) => (
+                <option key={i} value={i}>{b.book} — {b.odds} {b.line ? '(' + b.line + ')' : ''}</option>
+              ))}
+            </select>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <input value={selectedOdds} onChange={e => setSelectedOdds(e.target.value)} placeholder="-110"
+                style={{ ...sel, fontFamily: 'var(--mono)' }} />
+              <input value={selectedBook} onChange={e => setSelectedBook(e.target.value)} placeholder="DraftKings"
+                style={sel} />
+            </div>
+          )}
         </div>
+
         <div>
           <label style={{ fontSize: 9, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Confidence</label>
-          <select value={confidence} onChange={e => setConfidence(e.target.value)}
-            style={{ width: '100%', background: 'var(--sur)', border: '1px solid var(--bdr2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt)', fontSize: 12, outline: 'none' }}>
+          <select value={confidence} onChange={e => setConfidence(e.target.value)} style={sel}>
             {['High', 'Medium', 'Low'].map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
-        <button onClick={logSignal} disabled={!pick.trim() || saving} className="btn btn-gold" style={{ width: '100%', justifyContent: 'center', opacity: !pick.trim() ? 0.5 : 1 }}>
+
+        <button onClick={logSignal} disabled={!pick || saving} className="btn btn-gold" style={{ width: '100%', justifyContent: 'center', opacity: !pick ? 0.5 : 1 }}>
           {saving ? 'Saving...' : saved ? 'Saved!' : 'Log Signal'}
         </button>
       </div>
