@@ -276,12 +276,16 @@ function SignalLogger({ game, ak, hk, mkt, line, sigs, user }) {
     (bk.markets || []).forEach(m => {
       if (m.key !== mkt) return;
       (m.outcomes || []).forEach(o => {
-        const isUnder = o.name === 'Under' || o.name === 'Away';
-        const isOver = o.name === 'Over' || o.name === 'Home';
+        const oName = (o.name || '').toLowerCase();
+        const pickLo = (pick || '').toLowerCase();
         const matchesPick = pick && (
-          (pick.startsWith('Under') && isUnder) ||
-          (pick.startsWith('Over') && isOver) ||
-          pick === o.name
+          // Totals matching
+          (pick.startsWith('Under') && o.name === 'Under') ||
+          (pick.startsWith('Over') && o.name === 'Over') ||
+          // ML matching — check if outcome name matches any word in the pick
+          (mkt === 'h2h' && pickLo.split(' ').some(word => word.length > 2 && oName.includes(word))) ||
+          // RL matching
+          (mkt === 'spreads' && pickLo.split(' ').some(word => word.length > 2 && oName.includes(word)))
         );
         if (matchesPick) {
           const american = o.price >= 2
