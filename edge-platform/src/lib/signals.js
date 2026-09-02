@@ -217,13 +217,19 @@ export function buildMLBSignals(ak, hk, mkt, line, ctx = {}) {
   }
 
   if (mkt === 'h2h') {
+    // ml_units = cumulative profit in dollars betting $100/game all season (~132 games)
+    // Convert to ROI%: profit / (games * 100)
+    var GAMES_PLAYED = 132;
+    function mlRoi(units) { return Math.round(units / (GAMES_PLAYED * 100) * 1000) / 10; }
     if (ra) {
-      if (ra.ml_units > 500) sig('ML Value', 'BET ' + ak + ' — +' + ra.ml_units + ' ML units as away value team', true, ra.ml_units / 50);
-      if (ra.ml_units < -1000) sig('ML Value', 'FADE ' + ak + ' — burns ' + Math.abs(ra.ml_units) + ' ML units as favorite. BET ' + hk, true, Math.abs(ra.ml_units) / 50);
+      var aRoi = mlRoi(ra.ml_units);
+      if (ra.ml_units > 500) sig('ML Value', 'BET ' + ak + ' ML — positive ROI team (+' + aRoi + '% ROI flat betting moneyline all season)', true, ra.ml_units / 50);
+      if (ra.ml_units < -1000) sig('ML Value', 'FADE ' + ak + ' ML — negative ROI favorite (' + aRoi + '% ROI) — BET ' + hk, true, Math.abs(ra.ml_units) / 50);
     }
     if (rh) {
-      if (rh.ml_units > 500) sig('ML Value', 'BET ' + hk + ' — +' + rh.ml_units + ' ML units as home value team', true, rh.ml_units / 50);
-      if (rh.ml_units < -1000) sig('ML Value', 'FADE ' + hk + ' — burns ' + Math.abs(rh.ml_units) + ' ML units at home. BET ' + ak, true, Math.abs(rh.ml_units) / 50);
+      var hRoi = mlRoi(rh.ml_units);
+      if (rh.ml_units > 500) sig('ML Value', 'BET ' + hk + ' ML — positive ROI team (+' + hRoi + '% ROI flat betting moneyline all season)', true, rh.ml_units / 50);
+      if (rh.ml_units < -1000) sig('ML Value', 'FADE ' + hk + ' ML — negative ROI at home (' + hRoi + '% ROI) — BET ' + ak, true, Math.abs(rh.ml_units) / 50);
     }
     if (rh) {
       const hPct = parseRecord(rh.home_record);
