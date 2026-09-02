@@ -17,9 +17,7 @@ function SignalItem({ sig }) {
   );
 }
 
-function BestBetBanner({ ak, hk, line, ctx }) {
-  if (!ak && !hk) return null;
-  const best = getBestBet(ak, hk, line, ctx);
+function BestBetBanner({ best }) {
   if (!best || !best.topSig) return null;
   const mktColors = { totals: 'var(--blu)', h2h: 'var(--pur)', spreads: 'var(--gold)' };
   const c = mktColors[best.mkt] || 'var(--gold)';
@@ -108,6 +106,15 @@ export default function Game({ user }) {
   const conflictSigs = sigs.filter(s => s.good === 'conflict');
   const cats = [...new Set(sigs.map(s => s.cat))];
 
+  // Run all markets independently for Best Bet + per-tab counts
+  const totalsLine = getBestLine(game, 'totals').line;
+  const bestBet = getBestBet(ak, hk, totalsLine, ctx);
+  const mktCounts = {
+    totals:  buildSignals(ak, hk, 'totals',  totalsLine, ctx, sport).filter(s => s.good === true).length,
+    h2h:     buildSignals(ak, hk, 'h2h',     null,       ctx, sport).filter(s => s.good === true).length,
+    spreads: buildSignals(ak, hk, 'spreads', null,       ctx, sport).filter(s => s.good === true).length,
+  };
+
   const ra = ak ? MLB_STATS[ak] : null;
   const rh = hk ? MLB_STATS[hk] : null;
 
@@ -145,10 +152,10 @@ export default function Game({ user }) {
             {ctx.homePrev && <span className="pill" style={{ background: ctx.homePrev === 'win' ? 'var(--grn)18' : 'var(--red)18', color: ctx.homePrev === 'win' ? 'var(--grn)' : 'var(--red)', border: `1px solid ${ctx.homePrev === 'win' ? 'var(--grn)' : 'var(--red)'}33` }}>{game.home_team.split(' ').pop()} off {ctx.homePrev}</span>}
           </div>
 
-          {/* Best Bet Banner */}
-          <BestBetBanner ak={ak} hk={hk} line={line} ctx={ctx} />
+          {/* Best Bet Banner — always shows strongest play across all markets */}
+          <BestBetBanner best={bestBet} />
 
-          {/* Market tabs */}
+          {/* Market tabs with signal counts */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 14, marginTop: 10 }}>
             {MKTS.map(m => (
               <button key={m.key} onClick={() => setMkt(m.key)} style={{
@@ -157,8 +164,17 @@ export default function Game({ user }) {
                 borderRadius: 7, padding: '5px 14px', fontSize: 12,
                 fontWeight: mkt === m.key ? 700 : 400,
                 color: mkt === m.key ? m.color : 'var(--dim)',
+                position: 'relative',
               }}>
                 {m.label}
+                {mktCounts[m.key] > 0 && (
+                  <span style={{
+                    marginLeft: 5, fontSize: 9, fontWeight: 800,
+                    color: mkt === m.key ? m.color : 'var(--grn)',
+                    background: 'var(--grn)22', borderRadius: 10,
+                    padding: '1px 5px',
+                  }}>{mktCounts[m.key]}</span>
+                )}
               </button>
             ))}
           </div>

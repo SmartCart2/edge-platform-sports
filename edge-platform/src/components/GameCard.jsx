@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
-import { buildSignals } from '../lib/signals.js';
-import { fmtOdds, getBestLine } from '../lib/odds.js';
+import { getBestBet } from '../lib/signals.js';
+import { getBestLine } from '../lib/odds.js';
 
 function Meter({ count, max = 8 }) {
   const cols = ['#ef4444','#f97316','#f59e0b','#84cc16','#22c55e','#16a34a','#15803d','#14532d'];
@@ -20,11 +20,14 @@ function Meter({ count, max = 8 }) {
 }
 
 export default function GameCard({ game, ak, hk, mkt, ctx, sport }) {
-  const { line } = getBestLine(game, mkt);
-  const sigs = buildSignals(ak, hk, mkt, line, ctx, sport);
-  const good = sigs.filter(s => s.good).length;
+  // Always compute best bet across all markets regardless of selected tab
+  const totalsLine = getBestLine(game, 'totals').line;
+  const best = getBestBet(ak, hk, totalsLine, ctx);
+  const good = best ? best.goodSigs.length : 0;
 
-  const mktColor = mkt === 'totals' ? 'var(--blu)' : mkt === 'h2h' ? 'var(--pur)' : 'var(--gold)';
+  const mktColors = { totals: 'var(--blu)', h2h: 'var(--pur)', spreads: 'var(--gold)' };
+  const bestColor = best ? (mktColors[best.mkt] || 'var(--gold)') : 'var(--dim)';
+
   const date = new Date(game.commence_time).toLocaleDateString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit',
@@ -32,7 +35,7 @@ export default function GameCard({ game, ak, hk, mkt, ctx, sport }) {
 
   return (
     <Link
-      to={`/game/${game.id}?sport=${sport}&mkt=${mkt}`}
+      to={'/game/' + game.id + '?sport=' + sport + '&mkt=' + (best ? best.mkt : mkt)}
       style={{
         display: 'block',
         background: 'var(--sur)',
@@ -51,16 +54,25 @@ export default function GameCard({ game, ak, hk, mkt, ctx, sport }) {
         </div>
         <Meter count={good} />
       </div>
-      <div style={{ fontSize: 9, color: 'var(--mut)', marginBottom: good > 0 ? 4 : 0 }}>
-        {line != null ? `${mkt === 'totals' ? 'O/U ' : 'Ln '}${line}` : '--'} · {date}
+
+      <div style={{ fontSize: 9, color: 'var(--mut)', marginBottom: good > 0 ? 5 : 0 }}>
+        {totalsLine != null ? 'O/U ' + totalsLine : '--'} · {date}
       </div>
-      {good > 0 && (
-        <div style={{ fontSize: 10, fontWeight: 700, color: mktColor }}>
-          {good} signal{good > 1 ? 's' : ''}
+
+      {best && best.topSig && (
+        <div style={{
+          fontSize: 10, fontWeight: 700, color: bestColor,
+          background: bestColor + '11', borderRadius: 5,
+          padding: '3px 7px', marginTop: 3,
+          display: 'inline-block',
+          border: '1px solid ' + bestColor + '33',
+        }}>
+          {best.mktLabel}: {best.topSig.label.split(' — ')[1] || best.topSig.label.slice(0, 40)}
         </div>
       )}
-      {ctx?.isDiv && (
-        <div style={{ marginTop: 3 }}>
+
+      {ctx && ctx.isDiv && (
+        <div style={{ marginTop: 4 }}>
           <span className="pill" style={{ background: 'var(--pur)18', color: 'var(--pur)', border: '1px solid var(--pur)33' }}>
             DIV
           </span>
