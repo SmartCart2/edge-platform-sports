@@ -106,6 +106,29 @@ function parseRecord(rec) {
   return (w + l) > 0 ? Math.round(w / (w + l) * 100) : 50;
 }
 
+// ── BEST BET RECOMMENDER ──────────────────────────────────────────────────
+// Runs all three markets and returns the single strongest bet recommendation
+export function getBestBet(ak, hk, line, ctx) {
+  const markets = ['totals', 'h2h', 'spreads'];
+  let best = null;
+  markets.forEach(function(mkt) {
+    const sigs = buildMLBSignals(ak, hk, mkt, line, ctx);
+    const strong = sigs.filter(function(s) { return s.good === true; });
+    const topStrength = strong.length > 0 ? strong[0].strength : 0;
+    if (!best || topStrength > best.strength) {
+      best = {
+        mkt: mkt,
+        mktLabel: mkt === 'totals' ? 'Totals O/U' : mkt === 'h2h' ? 'Moneyline' : 'Run Line',
+        signals: sigs,
+        goodSigs: strong,
+        strength: topStrength,
+        topSig: strong[0] || null,
+      };
+    }
+  });
+  return best;
+}
+
 // ── MLB SIGNAL ENGINE ──────────────────────────────────────────────────────
 export function buildMLBSignals(ak, hk, mkt, line, ctx = {}) {
   const sigs = [];
@@ -155,28 +178,28 @@ export function buildMLBSignals(ak, hk, mkt, line, ctx = {}) {
       const isConflict = overallLean === 'under';
       const label = isConflict
         ? 'Conflicting: ' + tkey + ' ' + bucketLabel + ' leans OVER ' + overPct + '% (diff +' + diff + ') — weakens under play' + sampleNote
-        : tkey + ' ' + bucketLabel + ' go OVER ' + overPct + '% (diff +' + diff + ')' + sampleNote;
-      sig('Situational', label, isConflict ? 'conflict' : false, overPct - 50);
+        : tkey + ' ' + bucketLabel + ' go OVER ' + overPct + '% (diff +' + diff + ') — lean OVER' + sampleNote;
+      sig('Situational', label, isConflict ? 'conflict' : true, overPct - 50);
     }
   }
 
   if (mkt === 'totals') {
     if (ra) {
       const ua = 100 - ra.ou_over_pct;
-      if (ra.ou_over_pct >= 58) sig('Overall O/U', ak + ' is an OVER team in 2026 (' + ra.ou_over_pct + '% over, ' + ra.ou_record + ')', false, ra.ou_over_pct - 50);
-      if (ua >= 58) sig('Overall O/U', ak + ' is an UNDER team in 2026 (' + ua + '% under, ' + ra.ou_record + ')', true, ua - 50);
-      if ((ra.ou_diff || 0) <= -0.5) sig('Line Gap', ak + ' games avg ' + ra.ou_diff + ' runs vs posted total (2026)', true, Math.abs(ra.ou_diff) * 8);
-      if ((ra.ou_diff || 0) >= 0.8) sig('Line Gap', ak + ' games avg +' + ra.ou_diff + ' runs over posted total (2026)', false, ra.ou_diff * 8);
+      if (ra.ou_over_pct >= 58) sig('Overall O/U', ak + ' is an OVER team in 2026 (' + ra.ou_over_pct + '% over, ' + ra.ou_record + ') — lean OVER', true, ra.ou_over_pct - 50);
+      if (ua >= 58) sig('Overall O/U', ak + ' is an UNDER team in 2026 (' + ua + '% under, ' + ra.ou_record + ') — lean UNDER', true, ua - 50);
+      if ((ra.ou_diff || 0) <= -0.5) sig('Line Gap', ak + ' games avg ' + ra.ou_diff + ' runs vs posted total — line is HIGH, lean UNDER', true, Math.abs(ra.ou_diff) * 8);
+      if ((ra.ou_diff || 0) >= 0.8) sig('Line Gap', ak + ' games avg +' + ra.ou_diff + ' runs over line — line is LOW, lean OVER', true, ra.ou_diff * 8);
     }
     if (rh) {
       const uh = 100 - rh.ou_over_pct;
       const uhome = 100 - rh.ou_home_pct;
-      if (rh.ou_over_pct >= 58) sig('Overall O/U', hk + ' is an OVER team in 2026 (' + rh.ou_over_pct + '% over, ' + rh.ou_record + ')', false, rh.ou_over_pct - 50);
-      if (uh >= 58) sig('Overall O/U', hk + ' is an UNDER team in 2026 (' + uh + '% under, ' + rh.ou_record + ')', true, uh - 50);
-      if (rh.ou_home_pct >= 65) sig('Home O/U', hk + ' home games go OVER ' + rh.ou_home_pct + '% in 2026', false, rh.ou_home_pct - 50);
-      if (uhome >= 65) sig('Home O/U', hk + ' home games go UNDER ' + uhome + '% in 2026', true, uhome - 50);
-      if ((rh.ou_diff || 0) <= -0.5) sig('Line Gap', hk + ' home games avg ' + rh.ou_diff + ' runs vs line (2026)', true, Math.abs(rh.ou_diff) * 8);
-      if ((rh.ou_diff || 0) >= 0.8) sig('Line Gap', hk + ' home games avg +' + rh.ou_diff + ' runs over line (2026)', false, rh.ou_diff * 8);
+      if (rh.ou_over_pct >= 58) sig('Overall O/U', hk + ' is an OVER team in 2026 (' + rh.ou_over_pct + '% over, ' + rh.ou_record + ') — lean OVER', true, rh.ou_over_pct - 50);
+      if (uh >= 58) sig('Overall O/U', hk + ' is an UNDER team in 2026 (' + uh + '% under, ' + rh.ou_record + ') — lean UNDER', true, uh - 50);
+      if (rh.ou_home_pct >= 65) sig('Home O/U', hk + ' home games go OVER ' + rh.ou_home_pct + '% at home — lean OVER', true, rh.ou_home_pct - 50);
+      if (uhome >= 65) sig('Home O/U', hk + ' home games go UNDER ' + uhome + '% at home — lean UNDER', true, uhome - 50);
+      if ((rh.ou_diff || 0) <= -0.5) sig('Line Gap', hk + ' home games avg ' + rh.ou_diff + ' runs vs line — line is HIGH, lean UNDER', true, Math.abs(rh.ou_diff) * 8);
+      if ((rh.ou_diff || 0) >= 0.8) sig('Line Gap', hk + ' home games avg +' + rh.ou_diff + ' runs over line — line is LOW, lean OVER', true, rh.ou_diff * 8);
     }
     // Situational
     const awayBucket = ctx.awayPrev === 'win' ? 'after_win' : ctx.awayPrev === 'loss' ? 'after_loss' : null;
@@ -215,13 +238,13 @@ export function buildMLBSignals(ak, hk, mkt, line, ctx = {}) {
   }
 
   if (mkt === 'spreads') {
-    if (ra?.rl_pct) {
-      if (ra.rl_pct >= 55) sig('Run Line', `${ak} covers run line ${ra.rl_pct}%`, true, ra.rl_pct - 50);
-      if (ra.rl_pct <= 44) sig('Run Line', `${ak} only covers ${ra.rl_pct}% — fade -1.5`, false, 50 - ra.rl_pct);
+    if (ra && ra.rl_pct) {
+      if (ra.rl_pct >= 55) sig('Run Line', ak + ' covers run line ' + ra.rl_pct + '% — BET ' + ak + ' -1.5', true, ra.rl_pct - 50);
+      if (ra.rl_pct <= 44) sig('Run Line', ak + ' only covers ' + ra.rl_pct + '% on run line — BET ' + hk + ' -1.5', true, 50 - ra.rl_pct);
     }
-    if (rh?.rl_pct) {
-      if (rh.rl_pct >= 55) sig('Run Line', `${hk} covers run line ${rh.rl_pct}% at home`, true, rh.rl_pct - 50);
-      if (rh.rl_pct <= 44) sig('Run Line', `${hk} only covers ${rh.rl_pct}% at home`, false, 50 - rh.rl_pct);
+    if (rh && rh.rl_pct) {
+      if (rh.rl_pct >= 55) sig('Run Line', hk + ' covers run line ' + rh.rl_pct + '% at home — BET ' + hk + ' -1.5', true, rh.rl_pct - 50);
+      if (rh.rl_pct <= 44) sig('Run Line', hk + ' only covers ' + rh.rl_pct + '% at home — BET ' + ak + ' -1.5', true, 50 - rh.rl_pct);
     }
   }
 

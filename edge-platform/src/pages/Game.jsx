@@ -1,17 +1,40 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { fetchOdds, fetchProps, fetchScores, buildScoresMap, getBestLine, fmtOdds } from '../lib/odds.js';
-import { resolveTeam, autoDetectCtx, buildSignals } from '../lib/signals.js';
+import { resolveTeam, autoDetectCtx, buildSignals, getBestBet } from '../lib/signals.js';
 import { MLB_STATS } from '../data/mlb.js';
 import PropsTable from '../components/PropsTable.jsx';
 
 function SignalItem({ sig }) {
-  const c = sig.good ? 'var(--grn)' : sig.good === false ? 'var(--red)' : 'var(--dim)';
-  const bg = sig.good ? 'var(--grn)0d' : sig.good === false ? 'var(--red)0d' : 'var(--sur)';
-  const icon = sig.good ? '✓' : sig.good === false ? '✗' : '–';
+  const isConflict = sig.good === 'conflict';
+  const c = isConflict ? 'var(--gold)' : 'var(--grn)';
+  const bg = isConflict ? 'var(--gold)0d' : 'var(--grn)0d';
+  const icon = isConflict ? '!' : 'V';
   return (
     <div style={{ background: bg, borderRadius: 6, padding: '7px 10px', border: `1px solid ${c}33`, fontSize: 11, color: c, fontWeight: 600, lineHeight: 1.5, marginBottom: 4 }}>
       {icon} {sig.label}
+    </div>
+  );
+}
+
+function BestBetBanner({ ak, hk, line, ctx }) {
+  if (!ak && !hk) return null;
+  const best = getBestBet(ak, hk, line, ctx);
+  if (!best || !best.topSig) return null;
+  const mktColors = { totals: 'var(--blu)', h2h: 'var(--pur)', spreads: 'var(--gold)' };
+  const c = mktColors[best.mkt] || 'var(--gold)';
+  return (
+    <div style={{ background: c + '0d', border: '1px solid ' + c + '44', borderRadius: 12, padding: '12px 16px', marginBottom: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ fontSize: 9, color: c, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 800 }}>Best Bet</div>
+        <div style={{ fontSize: 9, color: c, fontWeight: 700, background: c + '18', borderRadius: 20, padding: '2px 10px' }}>{best.mktLabel}</div>
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', lineHeight: 1.4 }}>{best.topSig.label}</div>
+      {best.goodSigs.length > 1 && (
+        <div style={{ fontSize: 10, color: 'var(--dim)', marginTop: 6 }}>
+          +{best.goodSigs.length - 1} supporting signal{best.goodSigs.length > 2 ? 's' : ''} in this market
+        </div>
+      )}
     </div>
   );
 }
@@ -81,7 +104,8 @@ export default function Game({ user }) {
   const { ak, hk } = ctx;
   const { line, bestOver, bestOverBook, bestUnder, bestUnderBook } = getBestLine(game, mkt);
   const sigs = buildSignals(ak, hk, mkt, line, ctx, sport);
-  const goodSigs = sigs.filter(s => s.good);
+  const goodSigs = sigs.filter(s => s.good === true);
+  const conflictSigs = sigs.filter(s => s.good === 'conflict');
   const cats = [...new Set(sigs.map(s => s.cat))];
 
   const ra = ak ? MLB_STATS[ak] : null;
@@ -121,8 +145,11 @@ export default function Game({ user }) {
             {ctx.homePrev && <span className="pill" style={{ background: ctx.homePrev === 'win' ? 'var(--grn)18' : 'var(--red)18', color: ctx.homePrev === 'win' ? 'var(--grn)' : 'var(--red)', border: `1px solid ${ctx.homePrev === 'win' ? 'var(--grn)' : 'var(--red)'}33` }}>{game.home_team.split(' ').pop()} off {ctx.homePrev}</span>}
           </div>
 
+          {/* Best Bet Banner */}
+          <BestBetBanner ak={ak} hk={hk} line={line} ctx={ctx} />
+
           {/* Market tabs */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14, marginTop: 10 }}>
             {MKTS.map(m => (
               <button key={m.key} onClick={() => setMkt(m.key)} style={{
                 background: mkt === m.key ? m.color + '22' : 'none',
@@ -163,8 +190,15 @@ export default function Game({ user }) {
             <div style={{ fontSize: 11, color: mkt === 'totals' ? 'var(--blu)' : mkt === 'h2h' ? 'var(--pur)' : 'var(--gold)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
               Signal Breakdown
             </div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: goodSigs.length >= 3 ? 'var(--grn)' : 'var(--dim)' }}>
-              {goodSigs.length} signal{goodSigs.length !== 1 ? 's' : ''}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: goodSigs.length >= 3 ? 'var(--grn)' : 'var(--dim)' }}>
+                {goodSigs.length} signal{goodSigs.length !== 1 ? 's' : ''}
+              </div>
+              {conflictSigs.length > 0 && (
+                <div style={{ fontSize: 10, color: 'var(--gold)', fontWeight: 600 }}>
+                  {conflictSigs.length} conflict{conflictSigs.length !== 1 ? 's' : ''}
+                </div>
+              )}
             </div>
           </div>
           {sigs.length === 0 && (
@@ -228,7 +262,7 @@ function SignalLogger({ game, ak, hk, mkt, line, sigs, user }) {
   const [selectedOdds, setSelectedOdds] = useState('');
 
   // Build pick options from signals + line
-  const goodSigs = sigs.filter(s => s.good);
+  const goodSigs = sigs.filter(s => s.good === true);
   const mktLabel = mkt === 'totals' ? 'Totals O/U' : mkt === 'h2h' ? 'Moneyline' : 'Run Line';
 
   // Build pick suggestions from signals
