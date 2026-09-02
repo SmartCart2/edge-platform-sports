@@ -112,45 +112,77 @@ export function buildMLBSignals(ak, hk, mkt, line, ctx = {}) {
   const ra = ak ? MLB_STATS[ak] : null;
   const rh = hk ? MLB_STATS[hk] : null;
 
+  // good: true = green (bet under/recommended play)
+  // good: false = red (bet over / against lean)
+  // good: 'conflict' = yellow (conflicting signal)
   function sig(cat, label, good, strength) {
     sigs.push({ cat, label, good, strength: strength || 10 });
   }
 
-  function sitSig(team, tkey, bucket, bucketLabel, threshold = 62) {
-    if (!team?.situational) return;
+  // Determine overall under lean direction first (for conflict detection)
+  let overallLean = null; // 'under' | 'over' | null
+  if (mkt === 'totals') {
+    let underVotes = 0; let overVotes = 0;
+    if (ra && (100 - ra.ou_over_pct) >= 58) underVotes++;
+    if (ra && ra.ou_over_pct >= 58) overVotes++;
+    if (rh && (100 - rh.ou_over_pct) >= 58) underVotes++;
+    if (rh && rh.ou_over_pct >= 58) overVotes++;
+    if (rh && (100 - rh.ou_home_pct) >= 65) underVotes++;
+    if (rh && rh.ou_home_pct >= 65) overVotes++;
+    if (underVotes > overVotes) overallLean = 'under';
+    else if (overVotes > underVotes) overallLean = 'over';
+  }
+
+  function sitSig(team, tkey, bucket, bucketLabel, threshold) {
+    if (!threshold) threshold = 62;
+    if (!team || !team.situational) return;
     const entry = team.situational[bucket];
     if (!entry || entry[0] === null) return;
-    const [overPct, diff] = entry;
+    const overPct = entry[0]; const diff = entry[1];
     const underPct = 100 - overPct;
+
+    // Estimate sample size from ou_record for context
+    // situational data from BetIQ doesn't include n directly
+    // Flag extreme values (0% or 100%) as small sample
+    const isExtreme = overPct === 0 || overPct === 100;
+    const sampleNote = isExtreme ? ' (small sample — 2026 season only)' : '';
+
     if (underPct >= threshold) {
-      sig('Situational', `${tkey} ${bucketLabel} go UNDER ${underPct}% (${overPct}% over, diff ${diff})`, true, underPct - 50);
+      const isConflict = overallLean === 'over';
+      const label = tkey + ' ' + bucketLabel + ' go UNDER ' + underPct + '% (' + overPct + '% over, diff ' + diff + ')' + sampleNote;
+      sig('Situational', label, isConflict ? 'conflict' : true, underPct - 50);
     } else if (overPct >= threshold) {
-      sig('Situational', `${tkey} ${bucketLabel} go OVER ${overPct}% (diff +${diff})`, false, overPct - 50);
+      const isConflict = overallLean === 'under';
+      const label = isConflict
+        ? 'Conflicting: ' + tkey + ' ' + bucketLabel + ' leans OVER ' + overPct + '% (diff +' + diff + ') — weakens under play' + sampleNote
+        : tkey + ' ' + bucketLabel + ' go OVER ' + overPct + '% (diff +' + diff + ')' + sampleNote;
+      sig('Situational', label, isConflict ? 'conflict' : false, overPct - 50);
     }
   }
 
   if (mkt === 'totals') {
     if (ra) {
       const ua = 100 - ra.ou_over_pct;
-      if (ra.ou_over_pct >= 58) sig('Overall O/U', `${ak} is an OVER team (${ra.ou_over_pct}% over, ${ra.ou_record})`, false, ra.ou_over_pct - 50);
-      if (ua >= 58) sig('Overall O/U', `${ak} is an UNDER team (${ua}% under, ${ra.ou_record})`, true, ua - 50);
-      if ((ra.ou_diff || 0) <= -0.5) sig('Line Gap', `${ak} games avg ${ra.ou_diff} vs total line`, true, Math.abs(ra.ou_diff) * 8);
-      if ((ra.ou_diff || 0) >= 0.8) sig('Line Gap', `${ak} games avg +${ra.ou_diff} over total line`, false, ra.ou_diff * 8);
+      if (ra.ou_over_pct >= 58) sig('Overall O/U', ak + ' is an OVER team in 2026 (' + ra.ou_over_pct + '% over, ' + ra.ou_record + ')', false, ra.ou_over_pct - 50);
+      if (ua >= 58) sig('Overall O/U', ak + ' is an UNDER team in 2026 (' + ua + '% under, ' + ra.ou_record + ')', true, ua - 50);
+      if ((ra.ou_diff || 0) <= -0.5) sig('Line Gap', ak + ' games avg ' + ra.ou_diff + ' runs vs posted total (2026)', true, Math.abs(ra.ou_diff) * 8);
+      if ((ra.ou_diff || 0) >= 0.8) sig('Line Gap', ak + ' games avg +' + ra.ou_diff + ' runs over posted total (2026)', false, ra.ou_diff * 8);
     }
     if (rh) {
       const uh = 100 - rh.ou_over_pct;
       const uhome = 100 - rh.ou_home_pct;
-      if (rh.ou_over_pct >= 58) sig('Overall O/U', `${hk} is an OVER team (${rh.ou_over_pct}% over, ${rh.ou_record})`, false, rh.ou_over_pct - 50);
-      if (uh >= 58) sig('Overall O/U', `${hk} is an UNDER team (${uh}% under, ${rh.ou_record})`, true, uh - 50);
-      if (rh.ou_home_pct >= 65) sig('Home O/U', `${hk} home games go OVER ${rh.ou_home_pct}%`, false, rh.ou_home_pct - 50);
-      if (uhome >= 65) sig('Home O/U', `${hk} home games go UNDER ${uhome}%`, true, uhome - 50);
-      if ((rh.ou_diff || 0) <= -0.5) sig('Line Gap', `${hk} home avg ${rh.ou_diff} vs line`, true, Math.abs(rh.ou_diff) * 8);
+      if (rh.ou_over_pct >= 58) sig('Overall O/U', hk + ' is an OVER team in 2026 (' + rh.ou_over_pct + '% over, ' + rh.ou_record + ')', false, rh.ou_over_pct - 50);
+      if (uh >= 58) sig('Overall O/U', hk + ' is an UNDER team in 2026 (' + uh + '% under, ' + rh.ou_record + ')', true, uh - 50);
+      if (rh.ou_home_pct >= 65) sig('Home O/U', hk + ' home games go OVER ' + rh.ou_home_pct + '% in 2026', false, rh.ou_home_pct - 50);
+      if (uhome >= 65) sig('Home O/U', hk + ' home games go UNDER ' + uhome + '% in 2026', true, uhome - 50);
+      if ((rh.ou_diff || 0) <= -0.5) sig('Line Gap', hk + ' home games avg ' + rh.ou_diff + ' runs vs line (2026)', true, Math.abs(rh.ou_diff) * 8);
+      if ((rh.ou_diff || 0) >= 0.8) sig('Line Gap', hk + ' home games avg +' + rh.ou_diff + ' runs over line (2026)', false, rh.ou_diff * 8);
     }
     // Situational
     const awayBucket = ctx.awayPrev === 'win' ? 'after_win' : ctx.awayPrev === 'loss' ? 'after_loss' : null;
     const homeBucket = ctx.homePrev === 'win' ? 'after_win' : ctx.homePrev === 'loss' ? 'after_loss' : null;
-    if (awayBucket) sitSig(ra, ak, awayBucket, `off a ${ctx.awayPrev}`);
-    if (homeBucket) sitSig(rh, hk, homeBucket, `off a ${ctx.homePrev}`);
+    if (awayBucket) sitSig(ra, ak, awayBucket, 'off a ' + ctx.awayPrev);
+    if (homeBucket) sitSig(rh, hk, homeBucket, 'off a ' + ctx.homePrev);
     if (ctx.awayIsFav === true) sitSig(ra, ak, 'as_fav', 'as favorite');
     else if (ctx.awayIsFav === false) sitSig(ra, ak, 'away_dog', 'as away underdog');
     if (ctx.awayIsFav === false) sitSig(rh, hk, 'as_fav', 'as home favorite');
